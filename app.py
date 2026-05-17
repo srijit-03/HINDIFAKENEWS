@@ -1,16 +1,22 @@
-from flask import Flask, request
-import numpy as np
-from model import get_hinvec_embedding, CNNModel
-import torch
+from flask import Flask, render_template, request
+import pickle
+
+# ==============================
+# LOAD MODEL
+# ==============================
+
+model = pickle.load(open("svm_model.pkl", "rb"))
+vectorizer = pickle.load(open("vectorizer.pkl", "rb"))
+
+# ==============================
+# FLASK APP
+# ==============================
 
 app = Flask(__name__)
 
-# Load CNN model
-input_dim = 768  # HinVec embedding size
-
-model = CNNModel(input_dim)
-model.load_state_dict(torch.load("cnn_model.pth"))
-model.eval()
+# ==============================
+# HOME ROUTE
+# ==============================
 
 @app.route("/", methods=["GET", "POST"])
 def home():
@@ -21,28 +27,29 @@ def home():
 
         news = request.form["news"]
 
-        emb = get_hinvec_embedding(news)
+        # Transform text
+        news_vector = vectorizer.transform([news])
 
-        # ✅ FIXED INDENTATION
-        emb_tensor = torch.tensor(emb, dtype=torch.float32).unsqueeze(0)
+        # Predict
+        result = model.predict(news_vector)[0]
 
-        # ✅ inside POST block
-        with torch.no_grad():
-            output = model(emb_tensor)
-            _, pred = torch.max(output, 1)
+        if result == 1:
+            prediction = "🛑 Fake News"
+        else:
+            prediction = "✅ Real News"
 
-        pred = pred.item()
+    return render_template(
+        "index.html",
+        prediction=prediction
+    )
 
-        prediction = "Fake News" if pred == 1 else "Real News"
-
-    return f"""
-    <h2>Fake News Detection</h2>
-    <form method="post">
-        <textarea name="news" rows="6" cols="60"></textarea><br><br>
-        <button type="submit">Check</button>
-    </form>
-    <h3>{prediction}</h3>
-    """
+# ==============================
+# RUN APP
+# ==============================
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    import os
+
+port = int(os.environ.get("PORT", 7860))
+
+app.run(host="0.0.0.0", port=port)
